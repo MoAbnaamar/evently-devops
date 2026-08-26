@@ -11,6 +11,7 @@ class FormNotFoundError(Exception):
 
 # Process-local storage for forms and submissions
 class InMemoryStore:
+    
     # Initialize internal storage dictionaries
     def __init__(self) -> None:
         self._forms: dict[UUID, Form] = {}
