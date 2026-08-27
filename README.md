@@ -1,5 +1,7 @@
 # Evently — Form intake service
 
+![CI](https://github.com/MoAbnaamar/evently-devops/actions/workflows/ci.yml/badge.svg)
+
 A minimal REST API for creating forms and collecting submissions, built as a
 Cloud & DevOps assignment. The weight of the work is in the container image,
 the local environment and the CI/CD pipeline rather than in the application.
