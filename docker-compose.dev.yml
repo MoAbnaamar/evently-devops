@@ -1,0 +1,28 @@
+# Development compose overlay. (run with: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build)
+
+services:
+  api:
+    # Environment variable overrides
+    environment:
+      EVENTLY_ENVIRONMENT: dev
+
+    # Read-only source code mount for hot-reloading
+    volumes:
+      - ./app:/app/app:ro
+
+    # Start development server with live reload enabled
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+        "--reload-dir",
+        "/app/app",
+      ]
+
+    # Disable auto-restart to keep failure logs visible during development
+    restart: "no"
