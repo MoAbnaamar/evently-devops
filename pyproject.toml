@@ -1,0 +1,42 @@
+# General project info and main dependencies
+[project]
+name = "evently"
+version = "0.1.0"
+description = "Minimal form intake service for Evently"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic-settings>=2.6.0",
+]
+
+# Extra dependencies
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "httpx2>=0.1.0",
+    "ruff>=0.7.0",
+    "mypy>=1.13.0",
+]
+
+# Define that this project is a standalone app (not an installable library)
+[tool.uv]
+package = false
+
+# Define specific rules for ruff
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+# Enable style and bug checks for ruff
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+# Enable strict type checking rules for mypy
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+# Default folder location for tests 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
