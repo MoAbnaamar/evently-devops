@@ -1,0 +1,25 @@
+# Local virtual environment
+.venv/
+
+# Version control and CI metadata
+.git/
+.gitignore
+.github/
+
+# Python byte code and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Test suite files
+tests/
+
+# Environment files and secrets
+.env
+
+# Documentation and container metadata
+README.md
+Dockerfile
+docker-compose.yml
