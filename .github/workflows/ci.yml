@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  # Trigger on pushes to main
+  push:
+    branches: [main]
+  # Trigger on pull requests targeting main
+  pull_request:
+    branches: [main]
+  # Allow manual workflow execution
+  workflow_dispatch:
+
+# Cancel in-progress runs on the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Default to read-only permissions
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  # Local tag used for the build, scan and smoke test before anything is pushed.
+  LOCAL_IMAGE: evently:ci
+
+jobs:
+  # Quality gate job (linting, type checking, unit tests)
+  quality:
+    name: Lint, type check and test
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout repository source code
+      - uses: actions/checkout@v4
+
+      # Install uv toolchain with caching
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # Install exact dependencies from lockfile (fails the build if uv.lock does not match pyproject.toml)
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # Run code linter
+      - name: Lint
+        run: uv run ruff check .
+
+      # Run static type analyzer
+      - name: Type check
+        run: uv run mypy app
+
+      # Run test suite
+      - name: Test
+        run: uv run pytest -q
+
+  # Image build, vulnerability scan, and registry publish job
+  image:
+    name: Build, scan and publish image
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # Checkout repository source code
+      - uses: actions/checkout@v4
+
+      # Set up Docker Buildx for layer caching
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build local Docker image for testing
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ${{ env.LOCAL_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Execute smoke test against running container
+      - name: Smoke test the image
+        run: |
+          docker run -d --name evently-ci -p 8000:8000 \
+            -e EVENTLY_ENVIRONMENT=ci \
+            -e EVENTLY_APP_VERSION=${{ github.sha }} \
+            ${{ env.LOCAL_IMAGE }}
+
+          for attempt in $(seq 1 15); do
+            if curl -fsS http://localhost:8000/health -o health.json; then
+              echo "Service answered after ${attempt}s"
+              cat health.json
+              healthy=1
+              break
+            fi
+            sleep 1
+          done
+
+          if [ -z "${healthy:-}" ]; then
+            echo "Service did not become healthy in time"
+            docker logs evently-ci
+            exit 1
+          fi
+
+          grep -q '"status":"ok"' health.json
+
+      # Cleanup smoke test container
+      - name: Stop smoke test container
+        if: always()
+        run: docker rm -f evently-ci || true
+
+      # Report all image vulnerabilities for visibility
+      - name: Vulnerability report (informational)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: table
+          exit-code: "0"
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+
+      # Fail pipeline on fixable High or Critical vulnerabilities
+      - name: Fail on fixable critical or high vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+
+      # Log in to GitHub Container Registry (main branch pushes only)
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Extract image tags and labels
+      - name: Derive image tags
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}
+          tags: |
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Push image to GHCR registry
+      - name: Push image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
